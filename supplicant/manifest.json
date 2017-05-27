@@ -1,0 +1,27 @@
+{
+	"manifest_version": "2.0.0",
+	"supportgetappstatus": 1,
+	"requirements": {
+		"support_refconfig": 1
+	},
+	"app_install_location": 0,
+	"configuration": [
+        {
+            "name": "用户名",
+            "type": "text",
+            "variable": "username",
+            "defaultvalue": "",
+            "required": 1,
+            "description": "*",
+            "regexpression": ""
+        },
+        {
+            "name": "密码",
+            "type": "password",
+            "variable": "password",
+            "defaultvalue": "",
+            "required": 1,
+            "description": "*"
+        }
+    ]
+}
