@@ -1,0 +1,88 @@
+#!/bin/sh /etc/rc.common
+#chkconfig:2345 80 50
+#description:supplicant service
+
+START=95
+STOP=95
+
+home='/usr/share/supplicant'
+prog='/usr/share/supplicant/supplicant.lua'
+script_running='/usr/share/supplicant/supplicant.pid'
+
+EXTRA_COMMANDS="status"
+EXTRA_HELP="        status	Display the service's status"
+
+start(){
+	echo -n "starting..."
+	lua ${prog} 1> /dev/null 2> ${home}/error.log & pid=$!
+	echo ${pid} > ${script_running}
+	echo "ok."
+	return 0
+}
+
+stop() {
+	if [ ! -e ${script_running} ]; then
+		return 0
+	fi
+	
+	echo -n "stopping..."
+	local spid=`cat ${script_running}`
+	if [ "${spid}" != "" ]; then
+		kill -9 ${spid} &> /dev/null
+		rm ${script_running}
+	fi
+	echo "ok"
+	return 0
+}
+
+status() {
+    local cur_date=`date "+%Y-%m-%d %H:%M:%S"`
+    local running=-1
+    if [ -e ${script_running} ]; then
+		local spid=`cat ${script_running}`
+		if [ "${spid}" != "" ]; then
+			kill -0 ${spid} &> /dev/null
+			if [ "$?" == "0" ]; then
+				running=0
+			fi
+		fi
+	fi
+
+	if [ ! -e ${info_log} ]; then
+		echo -n > ${info_log}
+	fi
+	local info=`cat ${info_log}`
+	local error=`cat ${error_log}`
+
+	if [ ${running} == -1 ]; then
+		rm ${script_running} &> /dev/null
+		echo -e "状态 : 已停止 \n时间: '$cur_date' \n日志:\n'${info}'\n'${error}'"
+	else
+		echo -e "状态 : 运行中 \n时间: '$cur_date'\n'${info}'"
+	fi  
+}
+
+restart() {
+	stop
+	sleep 1
+	start
+}
+
+case "$1" in  
+    start)
+        start  
+        exit 0  
+    ;;  
+    stop) 
+        stop  
+        exit 0  
+    ;;
+    restart)
+		restart
+		exit 0
+	;;
+    status)
+		status
+		exit 0
+	;;  
+esac

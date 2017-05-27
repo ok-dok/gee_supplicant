@@ -1,0 +1,121 @@
+#!/bin/sh
+
+home="/usr/share/supplicant"
+config_file="${home}/conf.lua"
+authc_file="${home}/supplicant.conf"
+prog="${home}/supplicant.lua"
+script_running="${home}/supplicant.pid"
+info_log="${home}/info.log"
+error_log="${home}/error.log"
+
+start(){
+	lua ${prog} 1> /dev/null 2> ${error_log} & pid=$!
+	echo ${pid} > ${script_running}
+	return 0
+}
+
+stop() {
+	if [ ! -e ${script_running} ]; then
+		return 0
+	fi
+	
+	local spid=`cat ${script_running}`
+	if [ "${spid}" != "" ]; then
+		kill -9 ${spid} &> /dev/null
+		rm ${script_running}
+	fi
+	return 0
+}
+
+status() {
+    local cur_date=`date "+%Y-%m-%d %H:%M:%S"`
+    local running=-1
+    if [ -e ${script_running} ]; then
+		local spid=`cat ${script_running}`
+		if [ "${spid}" != "" ]; then
+			kill -0 ${spid} &> /dev/null
+			if [ "$?" == "0" ]; then
+				running=0
+			fi
+		fi
+	fi
+	
+	if [ ! -e ${info_log} ]; then
+		echo -n > ${info_log}
+	fi
+	local info=`cat ${info_log}`
+	local error=`cat ${error_log}`
+
+	if [ ${running} == -1 ]; then
+		rm ${script_running} &> /dev/null
+		echo '{ "status" : "stopped",  "msg": "时间: '$cur_date'<br/>'${info}'<br/>'${error}'"}'
+	else
+		echo '{ "status" : "running",  "msg": "时间: '$cur_date'<br/>'${info}'"}'
+	fi 
+}
+
+## 安装的时候调用
+install() {
+	if [ ! -e ${home} ]; then
+		mkdir ${home}
+	fi
+	cp ./* ${home}
+	configure
+	lua ${prog} -t
+	if [ ! -e ${authc_file} ]; then
+		echo "<User-Echo>用户名或密码错误！"
+		rm -r ${home}
+		return -1
+	fi	
+	cp ${home}/supplicant /etc/init.d/
+	chmod +x /etc/init.d/supplicant
+	ln -sf /etc/init.d/supplicant /etc/rc.d/S95supplicant
+	ln -sf /etc/init.d/supplicant /etc/rc.d/K95supplicant
+	echo "0 7 * * * /etc/init.d/supplicant restart" >> /etc/crontabs/root
+	/etc/init.d/supplicant restart
+	return 0
+}
+
+## 卸载的时候调用
+uninstall() {
+    stop
+    sed -i '/supplicant/d' /etc/crontabs/root
+	rm /etc/rc.d/S95supplicant
+	rm /etc/rc.d/K95supplicant
+	rm /etc/init.d/supplicant
+	if [ -d ${home} ]; then  
+		rm -r ${home}  
+	fi
+    return 0
+}
+
+configure() {
+	dhcp='0'
+	version='3.8.2'
+
+	mac_addr=$(uci get network.wan.macaddr)
+	ifname=$(uci get network.wan.ifname)
+	if [ "${ifname}" == "" ]; then
+		ifname=$(uci get network.wan.def_ifname)
+	fi
+	eval $(ifconfig $ifname | awk '/inet addr/ {printf("ip=%s", $2)}' | awk -F: '{printf("ip=%s",$2)}')
+
+	echo "#!/usr/bin/lua" > $config_file
+	echo "dhcp='${dhcp}'" >> $config_file
+	echo "version='${version}'" >> $config_file
+	echo "mac_addr='${mac_addr}'" >> $config_file
+	echo "ip='${ip}'" >> $config_file
+}
+
+reconfigure() {
+	cp ./supplicant.conf ${home}/
+	configure
+	lua ${prog} -t
+	if [ ! -e ${authc_file} ]; then
+		echo "<User-Echo>用户名或密码错误！"
+		rm -r ${home}
+		return -1
+	fi
+	/etc/init.d/supplicant restart
+	return 0
+}
