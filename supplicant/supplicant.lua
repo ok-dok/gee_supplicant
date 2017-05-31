@@ -501,7 +501,7 @@ function breathe(socket, mac_addr, ip, session, index)
 			local breathe_packet = generate_breathe(mac_addr, ip, session, index)
 			socket:sendto(breathe_packet, host_ip, port)
 			local breathe_recv = socket:recv(4096)
-			if(type(recv_msg) == "boolean") then
+			if(type(breathe_recv) == "boolean") then
 				time_out_cnt = time_out_cnt + 1;
 				if(time_out_cnt <= 3) then
 					break
