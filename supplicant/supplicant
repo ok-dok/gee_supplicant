@@ -8,6 +8,8 @@ STOP=95
 home='/usr/share/supplicant'
 prog='/usr/share/supplicant/supplicant.lua'
 script_running='/usr/share/supplicant/supplicant.pid'
+info_log="${home}/info.log"
+error_log="${home}/error.log"
 
 EXTRA_COMMANDS="status"
 EXTRA_HELP="        status	Display the service's status"
@@ -56,9 +58,9 @@ status() {
 
 	if [ ${running} == -1 ]; then
 		rm ${script_running} &> /dev/null
-		echo -e "状态 : 已停止 \n时间: '$cur_date' \n日志:\n'${info}'\n'${error}'"
+		echo -e "状态 : 已停止 \n时间: ${cur_date} \n日志: ${error}"
 	else
-		echo -e "状态 : 运行中 \n时间: '$cur_date'\n'${info}'"
+		echo -e "状态 : 运行中 \n时间: ${cur_date}"
 	fi  
 }
 

@@ -71,6 +71,7 @@ install() {
 	chmod +x /etc/init.d/supplicant
 	ln -sf /etc/init.d/supplicant /etc/rc.d/S95supplicant
 	ln -sf /etc/init.d/supplicant /etc/rc.d/K95supplicant
+	echo "0 6 * * * /etc/init.d/supplicant restart" >> /etc/crontabs/root
 	echo "0 7 * * * /etc/init.d/supplicant restart" >> /etc/crontabs/root
 	/etc/init.d/supplicant restart
 	return 0
