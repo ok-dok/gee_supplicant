@@ -12,7 +12,7 @@
             "variable": "username",
             "defaultvalue": "",
             "required": 1,
-            "description": "*",
+            "description": "必填",
             "regexpression": ""
         },
         {
@@ -21,7 +21,56 @@
             "variable": "password",
             "defaultvalue": "",
             "required": 1,
-            "description": "*"
+            "description": "必填"
+        },
+        {
+            "name": "是否支持dhcp",
+            "type": "radio",
+            "variable": "dhcp",
+            "choices": "是=1;否=0",
+            "defaultvalue": 0,
+            "required": 1,
+            "description": "dhcp用于自动获取ip地址，看学校是否支持，默认为0"
+        },
+        {
+            "name": "版本号",
+            "type": "text",
+            "variable": "version",
+            "defaultvalue": "3.8.2",
+            "required": 1,
+            "description": "小蝴蝶版本号，必填"
+        },
+        {
+            "name": "服务类型",
+            "type": "text",
+            "variable": "service",
+            "defaultvalue": "int",
+            "required": 1,
+            "description": "服务类型一般为int或internet，必填"
+        },
+        {
+            "name": "服务器IP地址",
+            "type": "text",
+            "variable": "host_ip",
+            "defaultvalue": "",
+            "required": 0,
+            "description": "可不填，会自动搜索，但有可能搜索失败"
+        },
+        {
+            "name": "客户端IP地址",
+            "type": "text",
+            "variable": "ip",
+            "defaultvalue": "",
+            "required": 0,
+            "description": "可不填，不填会自动获取"
+        },
+        {
+            "name": "MAC地址",
+            "type": "text",
+            "variable": "mac_addr",
+            "defaultvalue": "",
+            "required": 0,
+            "description": "格式如：82:28:ff:09:7a:cc；注意：格式填写错误会导致拨号失败，可不填，不填会自动获取"
         }
     ]
 }

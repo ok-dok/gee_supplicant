@@ -5,13 +5,22 @@ config_file="${home}/conf.lua"
 authc_file="${home}/supplicant.conf"
 prog="${home}/supplicant.lua"
 script_running="${home}/supplicant.pid"
+connect_status="${home}/supplicant.status"
 info_log="${home}/info.log"
 error_log="${home}/error.log"
 
 start(){
+	if [ -e ${script_running} ]; then
+		return 0
+	fi
 	lua ${prog} 1> /dev/null 2> ${error_log} & pid=$!
 	echo ${pid} > ${script_running}
-	return 0
+	if [ "${pid}" != "" ]; then
+		kill -0 ${pid} &> /dev/null
+		if [ "$?" == "0" ]; then
+			return 0
+		fi
+	fi
 }
 
 stop() {
@@ -40,18 +49,31 @@ status() {
 		fi
 	fi
 	
+	local status=`cat ${connect_status} 2> /dev/null`
+	if [ "${status}" == "" ]; then
+		status="已断开"
+	fi
+	if [ "${status}" == "offline" ]; then
+		status="已断开"
+	else
+		status="已连接"
+	fi
+	
+	local program=""
+	if [ ${running} == -1 ]; then
+		rm ${script_running} &> /dev/null
+		program="stopped"
+	else
+		program="running"		
+	fi
 	if [ ! -e ${info_log} ]; then
 		echo -n > ${info_log}
 	fi
-	local info=`cat ${info_log}`
-	local error=`cat ${error_log}`
+	local info="`cat ${info_log} 2> /dev/null`"
+	local error="`cat ${error_log} 2> /dev/null`"
 
-	if [ ${running} == -1 ]; then
-		rm ${script_running} &> /dev/null
-		echo '{ "status" : "stopped",  "msg": "时间: '$cur_date'<br/>'${info}'<br/>'${error}'"}'
-	else
-		echo '{ "status" : "running",  "msg": "时间: '$cur_date'<br/>'${info}'"}'
-	fi 
+	echo -e '{ "status"： '${program}', "msg": "拨号状态： '${status}'<br/>时间: '${cur_date}'<br/>日志: <br/>'${error}'<br/>'${info}'"'
+
 }
 
 ## 安装的时候调用
@@ -59,64 +81,27 @@ install() {
 	if [ ! -e ${home} ]; then
 		mkdir ${home}
 	fi
-	cp ./* ${home}
-	configure
-	lua ${prog} -t
-	if [ ! -e ${authc_file} ]; then
-		echo "<User-Echo>用户名或密码错误！"
-		rm -r ${home}
-		return -1
-	fi	
-	cp ${home}/supplicant /etc/init.d/
+	cp -r ./ ${home}
+
+	cp ${home}/init.d/supplicant /etc/init.d/
 	chmod +x /etc/init.d/supplicant
+
 	ln -sf /etc/init.d/supplicant /etc/rc.d/S95supplicant
 	ln -sf /etc/init.d/supplicant /etc/rc.d/K95supplicant
-	echo "0 6 * * * /etc/init.d/supplicant restart" >> /etc/crontabs/root
-	echo "0 7 * * * /etc/init.d/supplicant restart" >> /etc/crontabs/root
-	/etc/init.d/supplicant restart
+
 	return 0
 }
 
 ## 卸载的时候调用
 uninstall() {
     stop
-    sed -i '/supplicant/d' /etc/crontabs/root
-	rm /etc/rc.d/S95supplicant
-	rm /etc/rc.d/K95supplicant
-	rm /etc/init.d/supplicant
-	if [ -d ${home} ]; then  
-		rm -r ${home}  
-	fi
+    ##删除定时任务、开机启动
+	sed -i '/supplicant/d' /etc/crontabs/root
+	rm -f /etc/rc.d/S95supplicant
+	rm -f /etc/rc.d/K95supplicant
+	rm -f /etc/init.d/supplicant
+	if [ -d $HOME ]; then  
+		rm -r $HOME 2> /dev/null
+	fi 
     return 0
-}
-
-configure() {
-	dhcp='0'
-	version='3.8.2'
-
-	mac_addr=$(uci get network.wan.macaddr)
-	ifname=$(uci get network.wan.ifname)
-	if [ "${ifname}" == "" ]; then
-		ifname=$(uci get network.wan.def_ifname)
-	fi
-	eval $(ifconfig $ifname | awk '/inet addr/ {printf("ip=%s", $2)}' | awk -F: '{printf("ip=%s",$2)}')
-
-	echo "#!/usr/bin/lua" > $config_file
-	echo "dhcp='${dhcp}'" >> $config_file
-	echo "version='${version}'" >> $config_file
-	echo "mac_addr='${mac_addr}'" >> $config_file
-	echo "ip='${ip}'" >> $config_file
-}
-
-reconfigure() {
-	cp ./supplicant.conf ${home}/
-	configure
-	lua ${prog} -t
-	if [ ! -e ${authc_file} ]; then
-		echo "<User-Echo>用户名或密码错误！"
-		rm -r ${home}
-		return -1
-	fi
-	/etc/init.d/supplicant restart
-	return 0
 }

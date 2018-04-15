@@ -1,10 +1,12 @@
 #!/usr/bin/lua
-
-socket = require "socket"
 nixio = require "nixio"
 bit = nixio.bit
 md5 = require "md5"
 --iconv = require "iconv"
+log = {}
+bool = {}
+--日志最低优先级的值
+log_priority_min = 0
 
 function string.split(input, delimiter)  
     local input = tostring(input) 
@@ -28,7 +30,7 @@ end
 function string.isNilOrEmpty(str)
 	if(type(str) == "nil") then
 		return true
-	elseif(type(str)== "string") then
+	elseif(type(str) == "string") then
 		if(string.trim(str) == "") then
 			return true
 		else
@@ -36,6 +38,14 @@ function string.isNilOrEmpty(str)
 		end
 	else
 		return true
+	end
+end
+
+function bool.isTrue(flag)
+	if(type(flag) == "boolean" and flag == true) then
+		return true
+	else
+		return false
 	end
 end
 
@@ -68,10 +78,74 @@ function sleep(n)
    os.execute("sleep " .. n)
 end
 
-function log(msg)
-	local log = io.open(log_file, "a")
-	log:write(msg.."<br/>\n")
-	log:close()
+--获取日志优先级是否允许, 默认最低优先级是0 -- log_priority_min
+-- 参数level			返回值
+--	debug		log_priority_min
+--	warn			   +1
+--	info			   +2
+--	error			   +3
+function log.priority(level)
+	--默认配置级别warn,log_level在配置文件中配置
+	if(string.isNilOrEmpty(log_level)) then
+		log_level = "warn"
+	end
+	local conf_level = log_priority_min + 1;
+	if(log_level == "debug") then
+		conf_level = log_priority_min;
+	elseif(log_level == "warn") then
+		conf_level = log_priority_min + 1;
+	elseif(log_level == "info") then
+		conf_level = log_priority_min + 2;
+	elseif(log_level == "error") then 
+		conf_level = log_priority_min + 3;
+	else
+		conf_level = log_priority_min + 1;
+	end
+	if(level == "debug") then
+		return conf_level <= log_priority_min;
+	elseif(level == "warn") then
+		return conf_level <= log_priority_min + 1;
+	elseif(level == "info") then
+		return conf_level <= log_priority_min + 2;
+	elseif(level == "error") then
+		return conf_level <= log_priority_min + 3;
+	end;
+end
+
+function log.debug(msg)
+	if(log.priority("debug")) then
+		log.msg(" [debug] "..msg)
+	end
+end
+
+function log.warn(msg)
+	if(log.priority("warn")) then
+		log.msg(" [ warn] "..msg)
+	end
+end
+
+function log.info(msg)
+	if(log.priority("info")) then
+		log.msg(" [ info] "..msg);
+	end
+end
+
+function log.error(msg)
+	if(log.priority("error")) then
+		log.msg(" [error] "..msg);
+	end
+end
+
+function log.printStatus(msg)
+	local file = io.open(status_file, "w")
+	file:write(msg)
+	file:close()
+end
+
+function log.msg(msg)
+	local logfile = io.open(log_file, "a")
+	logfile:write(os.date("%m/%d %X",os.time())..msg.."\n")
+	logfile:close()
 end
 
 function encrypt(buffer)
@@ -329,19 +403,24 @@ function generate_login(mac_addr, ip, user, pwd, dhcp, service, version)
 end
 
 function login(packet)
+	log.debug("Entered function login().")
+	log.debug("Sending a login packet...")
 	local recv_msg = send_recv(packet)
 	if(not recv_msg) then 
 		net_status = -2
+		log.debug("Receive timeout, no response pacekt was received.")
 		return nil
 	end
+	log.debug("Received a response packet, decrypting...")
 	local recv_packet = {}
 	for i=1,string.len(recv_msg) do
 		recv_packet[i] = string.byte(string.sub(recv_msg,i,i))
 	end
-	
     decrypt(recv_packet)
+	log.debug("The packet has been decrypted, MD5 checking...")
 	--md5校验
 	if(check_md5(recv_packet)) then
+		log.debug("MD5 check success! Getting the state...")
 		status = recv_packet[21]
 		session_len = recv_packet[23]
 		session = table.sub(recv_packet, 24, session_len + 24 - 1)
@@ -350,31 +429,34 @@ function login(packet)
 		message = table.sub(recv_packet, pos + 2, message_len + pos + 2 - 1)
 		msg = {}
 		for k,v in ipairs(message) do
-			table.insert(msg,string.char(v))
+			table.insert(msg, string.char(v))
 		end
 		msg_str = table.concat(msg)
 		--trans = iconv.new("utf-8","gbk")
 		--msg_str = trans:iconv(msg_str)
 		--log(msg_str)
-		if(status==0) then
+		if(status == 0) then
 			--认证出错，可能是用户名密码错误，也可能是不在上网时段，
 			--或者不是有效用户，或者被管理员禁止认证
 			--具体原因在msg_str中给出，但需要gbk解码
 			net_status = -3
+			log.debug("Login failure!")
 			return nil
 		else
 			net_status = 1
+			log.debug("Login success!")
 			return session
 		end
 	else
 		net_status = -1
+		log.debug("MD5 check failure!")
 		return nil
 	end
     
 end
 
 function generate_breathe(mac_addr, ip, session, index)
-    index = string.format("%x",index)
+    local indexstr = string.format("%x", index)
     local packet = {}
 	table.insert(packet, 0x03) --3 保持在线  5 请求下线  1 请求上线
     local packet_len = #(session) + 88
@@ -403,11 +485,11 @@ function generate_breathe(mac_addr, ip, session, index)
 	table.insert(packet, 0x14)
 	table.insert(packet, 0x06)
 	
-	local len = string.len(index)
-	table.insert(packet,string.format("%d","0x"..string.sub(index,len-7,len-6)))
-	table.insert(packet,string.format("%d","0x"..string.sub(index,len-5,len-4)))
-	table.insert(packet,string.format("%d","0x"..string.sub(index,len-3,len-2)))
-	table.insert(packet,string.format("%d","0x"..string.sub(index,len-1,len-0)))
+	local len = string.len(indexstr)
+	table.insert(packet,string.format("%d","0x"..string.sub(indexstr, len-7, len-6)))
+	table.insert(packet,string.format("%d","0x"..string.sub(indexstr, len-5, len-4)))
+	table.insert(packet,string.format("%d","0x"..string.sub(indexstr, len-3, len-2)))
+	table.insert(packet,string.format("%d","0x"..string.sub(indexstr, len-1, len-0)))
 	
 	local block = { 0x2a, 0x06, 0, 0, 0, 0, 
 					0x2b, 0x06, 0, 0, 0, 0, 
@@ -447,40 +529,50 @@ function generate_breathe(mac_addr, ip, session, index)
 end
 
 function breathe(mac_addr, ip, session, index)
-    sleep(20)
+	log.debug("Entered function breathe().")
+    sleep(30)
 	md5err_cnt = 0
     while(true) do
 		local breathe_packet = generate_breathe(mac_addr, ip, session, index)
-		
+		log.debug("Sending a breathe packet, index: "..index)
 		local recv_msg = send_recv(breathe_packet)
 		if(not recv_msg) then
 			net_status = -4
+			log.debug("Receive timeout, no response pacekt was received.")
 			return nil 
 		end
-		
+		log.debug("Received a response packet, decrypting...")
+
 		local recv_packet = {}
 		for i=1,string.len(recv_msg) do
 			recv_packet[i] = string.byte(string.sub(recv_msg,i,i))
 		end
 		decrypt(recv_packet)
+		log.debug("The packet has been decrypted, MD5 checking...")
 		if(check_md5(recv_packet)) then
+			log.debug("MD5 check success! Getting the state...")
 			status = recv_packet[21]
 			if status == 1 then
 				--在线
 				net_status = 1
+				log.debug("Breathe success!")
 			else
 				--呼吸出错
 				net_status = -6
-				md5err_cnt = md5err_cnt + 1
-				if(md5err_cnt >= 3) then
-					return
-				end
+				log.debug("Breathe error!")
+				return
 			end
 		else
 			net_status = -5
+			log.debug("MD5 check failure!")
+			md5err_cnt = md5err_cnt + 1
+			if(md5err_cnt >= 3) then
+				return
+			end
 		end
 		index = index + 3
-		sleep(20)
+		log.debug("Waiting for 30 seconds...")
+		sleep(30)
 	end
 end
 
@@ -557,11 +649,14 @@ function generate_logout(mac_addr, ip, session, index)
 end
 
 function logout(mac_addr, ip, session, index)
+	log.debug("Entered function logout().")
 	index = index + 3
 	logout_packet = generate_logout(mac_addr, ip, session, index)
+	log.debug("Sending a logout packet...")
 	send(logout_packet)
 	local recv_msg = receive()
 	net_status = 0 --下线
+	log.debug("Now offline.")
 end
 
 --接收报文
@@ -613,109 +708,104 @@ function check_md5(packet)
 	return table.concat(md5_packet) == table.concat(recv_md5)
 end
 
-function run()
-	retry_cnt = 0
-	local flag = init()
-	while(flag) do
-		connect()
-		if(net_status == -3) then
-			log("认证失败： 认证信息不正确或不在上网时段！")
-			flag = false;
-		elseif(net_status == -2 or net_status == -1) then
-			retry_cnt = retry_cnt + 1
-			if(retry_cnt > 5) then
-				log("认证失败： 连接超时，请稍后重试！")
-				flag = false;
-			end
-		else
-			retry_cnt = retry_cnt + 1
-			if(retry_cnt > 5) then
-				log("保持连接失败，请稍后重试！")
-				flag = false;
-			end
-		end
-	end
-	udp:close();
-end
-
 function connect()
+	log.debug("Entered function connect().")
 	net_status = 0;
 	index = 0x01000000
 	login_packet = generate_login(mac_addr, ip, username, password, dhcp, service, version)
 	session = login(login_packet)
 	if(session) then
 		retry_cnt = 0
-		log("您已连接到Internet！")
+		log.printStatus("online")
+		log.info("Connecting the internet success！")
 		breathe(mac_addr, ip, session, index)
-		if(net_status ~= 1) then
-			logout(mac_addr, ip, session, index)
-		end
+	end
+	if(net_status ~= 1 and net_status ~= -3) then
+		logout(mac_addr, ip, session, index)
 	end
 end
 
-function login_test()
-	init()
-	login_packet = generate_login(mac_addr, ip, username, password, dhcp, service, version)
-	local cnt = 3
-	while(cnt > 0) do
-		session = login(login_packet)
-		if(session) then break end
-		cnt = cnt - 1
-	end
+function search()
 	
-	if(not session) then
-		os.execute("rm "..authc_file)
+	if(string.isNilOrEmpty(host_ip)) then
+		udp:connect("1.1.1.8", 3850)
+		host_ip = search_server_ip(mac_addr, ip)
 	end
+	if(string.isNilOrEmpty(host_ip)) then
+		log.error("Failed to search for server host ip.")
+		return false
+	end
+
+	log.info("Server IP: "..host_ip)
+	udp:connect(host_ip, port)
+	if(string.isNilOrEmpty(service)) then
+		--udp:setpeername(host_ip, port)
+		service = search_service(mac_addr)
+	end
+	if(string.isNilOrEmpty(service)) then
+		log.warn("Failed to search internet service. Using the default service 'int', if it's not right, please configure service in 'bin/conf.lua'")
+		service = "int"
+		--return false
+	end
+
+	log.info("Service: "..service)
+	return true
 end
 
 function init()
+	--log.info("Loading configuration files.")
 	dofile(config_file)
-	dofile(authc_file)
 	pcall(dofile, config_file)
+	dofile(authc_file)
 	pcall(dofile, authc_file)
-	retry_cnt = 0;
 	port = 3848
 
 	udp = nixio.socket("inet","dgram")
 	udp:setopt("socket","reuseaddr",1)
 	udp:setopt("socket","rcvtimeo",10)
-	--udp:bind(ip, port)
-
-	--本想用luasocket,但不知为何，在udp:send()时偶发异常：calling 'send' on bad self (udp{connected} expected, got userdata)
-	--未找到原因，所以弃用
-	--udp = socket.udp()
-	--udp:setsockname(ip, port)
-	--udp:settimeout(10)
-	--udp:setpeername("1.1.1.8", 3850)
-	udp:connect("1.1.1.8", 3850)
-	host_ip = search_server_ip(mac_addr, ip)
-	if(string.isNilOrEmpty(host_ip)) then
-		log("搜索服务器ip地址失败！")
-		return false
+	
+	if(string.isNilOrEmpty(ip)) then
+		udp:connect("1.1.1.8", 3850)
+		ip = udp:getsockname()
 	end
-
-	--udp:setpeername(host_ip, port)
-	udp:connect(host_ip, port)
-	service = search_service(mac_addr)
-	if(string.isNilOrEmpty(service)) then
-		log("搜索服务失败！")
-		return false
-	end
-
+	
 	os.execute("echo -n > "..log_file)
-	log("服务类型: "..service)
-	log("MAC地址: "..mac_addr)
-	log("本机IP: "..ip)
-	log("服务IP: "..host_ip)
-	log("用户名: "..username)
-	return true
+	log.info("Mac Addr: "..mac_addr)
+	log.info("Local IP: "..ip)
+	log.info("Username: "..username)
+	log.info("Password: "..password)
+	
 end
 
 function main()
-	if(string.isNilOrEmpty(arg[1])) then
-		run()
-	elseif(arg[1] == "-t") then
-		login_test()
+	local connect_cnt = 0;
+	init()
+	local flag = autostart
+	while(flag) do
+		--记录连接次数
+		connect_cnt = connect_cnt + 1
+		log.printStatus("connecting")
+		if(search()) then
+			connect()
+			log.printStatus("offline")
+			if(net_status == -3) then
+				--认证失败，不再自动连接
+				log.error("Authentication failure： The authentication information is incorrect, or not in internet time period.")
+				flag = false;
+			elseif(net_status == -2 or net_status == -1) then
+				--连接超时，3秒后重新连接
+				log.error("Authentication failure： connect timeout, try reconnecting...")
+				sleep(3)
+			else
+				--保持连接失败，3秒后重新连接
+				log.error("Hold on connecting failed, try reconnecting...")
+				sleep(3)
+			end
+		else
+			--搜索服务失败，60秒后再次搜索
+			log.printStatus("offline")
+			sleep(60)
+		end
 	end
 end
 
@@ -723,5 +813,6 @@ home = "/usr/share/supplicant"
 config_file = home.."/conf.lua"
 authc_file = home.."/supplicant.conf"
 log_file = home.."/info.log"
+status_file = home.."/supplicant.status"
 net_status = 0
 main()

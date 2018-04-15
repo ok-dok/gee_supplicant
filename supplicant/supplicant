@@ -6,19 +6,40 @@ START=95
 STOP=95
 
 home='/usr/share/supplicant'
-prog='/usr/share/supplicant/supplicant.lua'
-script_running='/usr/share/supplicant/supplicant.pid'
+config_file="${home}/conf.lua"
+authc_file="${home}/supplicant.conf"
+prog="${home}/supplicant.lua"
+script_running="${home}/supplicant.pid"
+connect_status="${home}/supplicant.status"
 info_log="${home}/info.log"
 error_log="${home}/error.log"
 
-EXTRA_COMMANDS="status"
-EXTRA_HELP="        status	Display the service's status"
+EXTRA_COMMANDS="status log"
+EXTRA_HELP="	status	Display the service's status
+	log 	Show supplicant's log"
 
 start(){
-	echo -n "starting..."
+	if [ -e ${script_running} ]; then
+		echo -e "The supplicant is already running!"
+		return 0
+	fi
+	echo -n "Starting..."
 	lua ${prog} 1> /dev/null 2> ${home}/error.log & pid=$!
 	echo ${pid} > ${script_running}
-	echo "ok."
+
+	local info=`cat ${info_log} 2> /dev/null`
+	local error=`cat ${error_log} 2> /dev/null`
+
+	if [ "${pid}" != "" ]; then
+		kill -0 ${pid} &> /dev/null
+		if [ "$?" == "0" ]; then
+			echo -e "[ \033[32mOK\033[0m ]"
+			echo "Use command '/etc/init.d/supplicant status' to see status."
+			return 0
+		fi
+	fi
+	echo -e "[ \033[31mFailed\033[0m ]"	
+	echo -e "${info}\n${error}"
 	return 0
 }
 
@@ -27,13 +48,13 @@ stop() {
 		return 0
 	fi
 	
-	echo -n "stopping..."
-	local spid=`cat ${script_running}`
+	echo -n "Stopping..."
+	local spid=`cat ${script_running} 2> /dev/null`
 	if [ "${spid}" != "" ]; then
 		kill -9 ${spid} &> /dev/null
 		rm ${script_running}
 	fi
-	echo "ok"
+	echo -e "[ \033[32mOK\033[0m ]"
 	return 0
 }
 
@@ -49,25 +70,121 @@ status() {
 			fi
 		fi
 	fi
-
-	if [ ! -e ${info_log} ]; then
-		echo -n > ${info_log}
+	local status=`cat ${connect_status} 2> /dev/null`
+	if [ "${status}" == "" ]; then
+		status="offline"
 	fi
-	local info=`cat ${info_log}`
-	local error=`cat ${error_log}`
-
+	if [ "${status}" == "offline" ]; then
+		status="\033[31m${status}\033[0m"
+	else
+		status="\033[32m${status}\033[0m"
+	fi
+	
+	local error="`cat ${error_log} 2> /dev/null`"
+	local program=""
 	if [ ${running} == -1 ]; then
 		rm ${script_running} &> /dev/null
-		echo -e "状态 : 已停止 \n时间: ${cur_date} \n日志: ${error}"
+		program="\033[31mstopped\033[0m"
 	else
-		echo -e "状态 : 运行中 \n时间: ${cur_date}"
-	fi  
+		program="\033[32mrunning\033[0m"		
+	fi
+	echo -e "program\t:\t${program}\nstatus\t:\t${status}\ntime\t:\t${cur_date}"
+	if [ "${error}" != "" ]; then
+		echo -e "\n\033[31m${error}\033[0m"
+	fi
+	
+}
+
+log() {
+	if [ -e ${info_log} ]; then
+		cp ${info_log} ${info_log}.color
+		sed -i 's/\[error\]/\\033[31m[error]\\033[0m/' ${info_log}.color
+		sed -i 's/\[ info\]/\\033[32m[ info]\\033[0m/' ${info_log}.color
+		sed -i 's/\[ warn\]/\\033[33m[ warn]\\033[0m/' ${info_log}.color
+		sed -i 's/\[debug\]/\\033[34m[debug]\\033[0m/' ${info_log}.color
+		local info="`cat ${info_log}.color 2> /dev/null`"
+		if [ "${info}" != "" ]; then
+			echo -e "${info}"
+		fi
+		rm -f ${info_log}.color
+	fi
+}
+
+reload() {
+	
+	if [ -e ${script_running} ]; then
+		stop
+	fi
+	echo "Configuring..."
+	rm -f ${config_file}
+	rm -f ${authc_file}
+	local username=""
+	while [ "$username" == "" ] 
+	do
+		echo -n "Username: "
+		read username
+	done
+	local password=""
+	while [ "$password" == "" ] 
+	do
+		echo -n "Password: "
+		read password
+	done
+
+	local mac_addr=$(uci get network.wan.macaddr 2> /dev/null)
+	while [ "$mac_addr" == "" ] 
+	do
+		echo -n "Mac Addr: "
+		read mac_addr
+	done
+
+	local dhcp='0'
+	local version='3.8.2'
+	echo "#!/usr/bin/lua" > $config_file
+	echo "dhcp='$dhcp'" >> $config_file
+	echo "version='$version'" >> $config_file
+	echo "mac_addr='$mac_addr'" >> $config_file
+
+	echo "#!/usr/bin/lua" > $authc_file
+	echo "username='$username'" >> $authc_file
+	echo "password='$password'" >> $authc_file
+	enable
+	if [ -e ${config_file} ] && [ -e ${authc_file} ]; then
+		echo "Configure success!"
+		start
+		return 0
+	else
+		echo "Configure failed!"
+		return -1
+	fi
 }
 
 restart() {
 	stop
 	sleep 1
 	start
+}
+
+enable() {
+	ln -sf /etc/init.d/supplicant /etc/rc.d/S95supplicant
+	ln -sf /etc/init.d/supplicant /etc/rc.d/K95supplicant
+	local autostart=`cat ${config_file} | grep autostart | awk -F '=' '{print $2}' | sed s/[[:space:]]//g`
+	if [ "$autostart" != "" ]; then
+		sed -i -e '/autostart/d' $config_file
+	fi
+	echo "autostart=true" >> $config_file
+	echo "0 6 * * * /etc/init.d/supplicant restart" >> /etc/crontabs/root
+	echo "0 7 * * * /etc/init.d/supplicant restart" >> /etc/crontabs/root
+}
+
+disable() {
+	if [ "$autostart" != "" ]; then
+		sed -i -e '/autostart/d' $config_file
+	fi
+	echo "autostart=false" >> $config_file
+	rm /etc/rc.d/S95supplicant
+	rm /etc/rc.d/K95supplicant
+	sed -i '/supplicant/d' /etc/crontabs/root
 }
 
 case "$1" in  
@@ -86,5 +203,21 @@ case "$1" in
     status)
 		status
 		exit 0
-	;;  
+	;;
+	enable)
+		enable
+		exit 0
+	;;
+	disable)
+		disable
+		exit 0
+	;;
+	reload)
+		reload
+		exit 0
+	;;
+	log)
+		log
+		exit 0
+	;;
 esac
