@@ -71,6 +71,23 @@
             "defaultvalue": "",
             "required": 0,
             "description": "格式如：82:28:ff:09:7a:cc；注意：格式填写错误会导致拨号失败，可不填，不填会自动获取"
+        },
+        {
+            "name": "自动启动",
+            "type":"radio",
+            "variable": "autostart",
+            "choices": "是=1;否=0",
+            "defaultvalue": 1,
+            "required": 1,
+            "description": "允许程序自动启动，尝试拨号"
+        },
+        {
+            "name": "日志级别",
+            "type": "selection",
+            "variable": "log_level",
+            "choices": "调试=debug;警告=warn;信息=info;错误=error",
+            "defaultvalue": "info",
+            "description": "日志记录级别"
         }
     ]
 }

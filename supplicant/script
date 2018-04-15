@@ -50,13 +50,10 @@ status() {
 	fi
 	
 	local status=`cat ${connect_status} 2> /dev/null`
-	if [ "${status}" == "" ]; then
-		status="已断开"
-	fi
-	if [ "${status}" == "offline" ]; then
-		status="已断开"
-	else
+	if [ "${status}" == "online" ]; then
 		status="已连接"
+	else
+		status="已断开"
 	fi
 	
 	local program=""
@@ -72,8 +69,24 @@ status() {
 	local info="`cat ${info_log} 2> /dev/null`"
 	local error="`cat ${error_log} 2> /dev/null`"
 
-	echo -e '{ "status"： '${program}', "msg": "拨号状态： '${status}'<br/>时间: '${cur_date}'<br/>日志: <br/>'${error}'<br/>'${info}'"'
+	echo '{"status": "'${program}'", "msg": "拨号状态： '${status}'<br/>时间: '${cur_date}'<br/>日志: <br/>'${error}'<br/>'${info}'"}'
 
+}
+
+reconfigure() {
+	cp ./supplicant.conf ${home}/
+	
+	local dhcp='0'
+	local version='3.8.2'
+	echo "#!/usr/bin/lua" > $config_file
+	echo "dhcp='$dhcp'" >> $config_file
+	echo "version='$version'" >> $config_file
+	local mac_addr=$(uci get network.wan.macaddr 2> /dev/null)
+	echo "mac_addr='$mac_addr'" >> $config_file
+
+	stop
+	start
+	return 0
 }
 
 ## 安装的时候调用
@@ -83,12 +96,13 @@ install() {
 	fi
 	cp -r ./ ${home}
 
-	cp ${home}/init.d/supplicant /etc/init.d/
+	cp ${home}/supplicant /etc/init.d/
 	chmod +x /etc/init.d/supplicant
 
 	ln -sf /etc/init.d/supplicant /etc/rc.d/S95supplicant
 	ln -sf /etc/init.d/supplicant /etc/rc.d/K95supplicant
-
+	reconfigure
+	start
 	return 0
 }
 
@@ -100,8 +114,8 @@ uninstall() {
 	rm -f /etc/rc.d/S95supplicant
 	rm -f /etc/rc.d/K95supplicant
 	rm -f /etc/init.d/supplicant
-	if [ -d $HOME ]; then  
-		rm -r $HOME 2> /dev/null
+	if [ -d ${home} ]; then 
+		rm -r ${home} &> /dev/null
 	fi 
     return 0
 }
